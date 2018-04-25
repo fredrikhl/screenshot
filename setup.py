@@ -21,7 +21,7 @@ def setup_package():
 
     setup(
         name='screenshot',
-        description='Find and list modules in the current python environment',
+        description='Take screenshots with ImageMagick and xwininfo',
         long_description=read_textfile('README.md'),
         author='fredrikhl',
         url='https://github.com/fredrikhl/screenshot',
