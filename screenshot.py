@@ -4,14 +4,12 @@
 from __future__ import unicode_literals, print_function, absolute_import
 
 import argparse
+import datetime
 import logging
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime
-
-# TODO: Rewrite using PythonMagick or Wand?
 
 logger = logging.getLogger('screenshot')
 
@@ -110,7 +108,7 @@ class FileNamer(object):
     def suggest_filename(self):
         """ Suggest a filename based on settings. """
         basename = self.format_basename(
-            self.format_datetime(datetime.now()),
+            self.format_datetime(datetime.datetime.now()),
             self.format_number(self._find_max() + 1))
         filename = os.path.extsep.join((basename, self.ext))
         logger.debug('filename: %r', filename)
@@ -217,10 +215,10 @@ def writable_dir(value):
 
 def datetime_format(s):
     # Just make sure it works
-    res = datetime.now().strftime(s)
+    res = datetime.datetime.now().strftime(s)
     if len(res) < 1:
         raise ValueError("datetime format %r results in empty string" % (s, ))
-    base = datetime.fromtimestamp(0).strftime(s)
+    base = datetime.datetime.fromtimestamp(0).strftime(s)
     if res == base:
         raise ValueError("datetime format %r has no date or time components" %
                          (s, ))
@@ -313,8 +311,13 @@ def main(args=None):
         metavar='<file>',
     )
 
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(levelName)s - %(name) - %(message)',
+    )
+
     args = parser.parse_args(args)
-    sys.excepthook = excepthook
+    # sys.excepthook = excepthook
 
     namer = FileNamer(
         directory=args.directory,
