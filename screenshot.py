@@ -9,7 +9,8 @@ import logging
 import os
 import re
 import subprocess
-import sys
+import io
+import select
 
 logger = logging.getLogger('screenshot')
 
@@ -122,22 +123,67 @@ class FileNamer(object):
         return filename
 
 
+def run_command(*cmd):
+    logger.debug('running %r', cmd)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding='utf-8',
+    )
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    # process output
+    log_io = {
+        proc.stdout: (
+            (lambda line: logger.debug('[%d] stdout: %s',
+                                       proc.pid, line.rstrip())),
+            (lambda line: stdout.write(line)),
+        ),
+        proc.stderr: (
+            (lambda line: logger.warning('[%d] stderr: %s',
+                                         proc.pid, line.rstrip())),
+            (lambda line: stderr.write(line)),
+        ),
+    }
+
+    while log_io:
+        ready, _, _ = select.select(log_io.keys(), [], [])
+        for fd in ready:
+            handlers = log_io[fd]
+            line = fd.readline()
+            if line:
+                for fn in handlers:
+                    fn(line)
+            else:
+                fd.close()
+                del log_io[fd]
+
+    # handle exit
+    status = proc.wait()
+    level = logging.DEBUG
+    etype = 'exit'
+    err = False
+
+    if status != 0:
+        level = logging.ERROR
+        err = True
+        if os.WIFSIGNALED(status):
+            status = os.WTERMSIG(status)
+            etype = 'signal'
+        else:
+            status = os.WSTOPSIG(status)
+
+    logger.log(level, 'process pid=%r %s=%r', proc.pid, etype, status)
+    if err:
+        raise RuntimeError('command %r failed' % (cmd,))
+    return stdout.getvalue(), stderr.getvalue()
+
+
 def _fetch_window(*args):
     """ Wait for the user to select an X window. """
-    cmd = ["xwininfo"] + list(args)
-    logger.debug("xwininfo cmd=%r", cmd)
-    process = subprocess.Popen(cmd,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    out, err = process.communicate()
-    logger.debug("xwininfo stdout=%r stderr=%r", out, err)
-
-    if process.returncode != 0:
-        e = re.search("xwininfo: error: (?P<error>.+)\\.",
-                      err.strip(), re.MULTILINE)
-        error = e.group('error') if e else err.strip().split("\n")[-1]
-        logger.error("xwininfo - exit code %d (%s)", process.returncode, error)
-        raise RuntimeError("unable to fetch window")
+    out, _ = run_command('xwininfo', *args)
 
     result = re.search(r'^xwininfo: Window id: (?P<window>0x[0-9A-Za-z]+) .*',
                        out, re.MULTILINE)
@@ -166,24 +212,16 @@ def verify_window_name(window_name):
 
 def take_screenshot(dest, window=None, frame=True):
     """ Take a screenshot with `import'. """
-    args = ['import', ]
+    cmd = ['import', ]
 
     if window is not None:
-        args.extend(['-window', str(window), ])
+        cmd.extend(['-window', str(window), ])
         if frame:
-            args.append('-frame')
+            cmd.append('-frame')
 
-    args.append(dest)
+    cmd.append(dest)
 
-    process = subprocess.Popen(args,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-
-    out, err = process.communicate()
-    ret = process.returncode
-
-    if (ret != 0) or err:
-        raise Exception("Exit code was %d: %s" % (ret, err))
+    out, _ = run_command(*cmd)
 
 
 def excepthook(exc, val, tb):
